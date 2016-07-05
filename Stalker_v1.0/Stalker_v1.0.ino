@@ -1,26 +1,26 @@
-//28.04.2016
+//Ver 1.1 (c) xupypr vk.com/xupypr_grodno
 #include <Adafruit_GFX.h>
 #include <Adafruit_PCD8544.h>
-#include <VirtualWire.h>
 #include <EEPROM.h>
+#include <SoftwareSerial.h>
+SoftwareSerial mySerial(2, 3);
 Adafruit_PCD8544 display = Adafruit_PCD8544(5, 6, 7, 8, 9);
 //Id
 byte Device_id=1, Group_id=1; //ID устройства, ID группировки 
 //Мертв/жив
 bool Death=false, DeathSignal=false; //Мертв ли сталкер, Повторение сигнала смерти пока не подтвердишь
-byte DeathCause=0, PrHealth=101, PrHealthWrite=100; //Причина смерти, Хэлсы персонажа
-float Health=100;
-byte MaxHealth=100; //Максимальное значение жизни
-float TreatKoef=1.0; //Коэффициент лечения
+byte DeathCause=0; //Причина смерти
+long Health=100000;
+long MaxHealth=100000,PrHealth=101000, PrHealthWrite=100000;; //Максимальное значение жизни
+byte TreatKoef=100; //Коэффициент лечения в процентах
 //Батарея
 bool LowVolt=false; //низкий заряд батареи
 byte Volt, BatICO=123; //Заряд батареи в процентах и адрес иконки батареи в зависимости от заряда
 //Радиация и лечение
-float RadiationKoef=1, MinRadiationKoef=1; //Коэффициент воздействия радиации на игрока
-bool Radiation_res=false, Radiation=true, Treat_res=false, Treat=true; //логика радиации и лечилки
-float RadiationLevel=0, TreatLevel=0; //общий уровень радиации и лечилки
-float RadiationMas[3]={0, 0, 0}, TreatMas[7] = {0, 0, 0, 0, 0, 0, 0}; //Массивы значений от передатчиков радиации и лечилок
-float BonusTreat=0.0; //Для реализации бонуса "Зализывая раны"
+byte RadiationKoef=100, MinRadiationKoef=100; //Коэффициент воздействия радиации на игрока
+unsigned int RadiationLevel=0, TreatLevel=0; //общий уровень радиации и лечилки
+unsigned int BonusTreat=0; //Для реализации бонуса "Зализывая раны"
+unsigned int TreatArtefact=0;
 bool TreatBar=false; // бонус "Завсегдатай"
 bool TreatBaza=false; //бонус "Член банды"
 //Устройства, кнопки, пины
@@ -28,7 +28,7 @@ int OutDevice[13] = {70, 120, 198, 276, 361, 454, 532, 605, 676, 756, 859, 943, 
 int KeysACP[5] = {890, 697, 512, 341, 776}; // АЦП кнопок
 byte DeviceID=0, ArtefaktID[2]={0,0}; //Номер подключенного устройства
 bool Device[2]={false,false}, Artefakt[2]={false, false}, Key=false; //Логика устройств внешних и нажатия кнопок меню
-byte VbatPin=0, AdminDevPin[2]={6,3},ArtefaktPin[2]={7,2}, KeysPin=1, SpeakerPin=10, LedPin=3, receive_pin = 2; //Пины контроллера
+byte VbatPin=0, AdminDevPin[2]={6,3},ArtefaktPin[2]={7,2}, KeysPin=1, SpeakerPin=10, LedPin=9; //Пины контроллера
 //Дисплей
 int DisplayLedTime=30000; // Время подсветки дисплея
 byte DisplayBright=200, DisplayPage=31; // Якрость подсветки дисплея и номер отображаемой страницы дисплея
@@ -39,15 +39,11 @@ byte ArtPgNum=0; //Номер Артефакта, который отображ�
 int ArtInfoTime=5000;
 //СМС
 byte Messages=0; //Кол-во непрочитанных сообщений
-char MA[70]={0}; //Для принятых текстовых сообщений через радиопередатчик
 char M[70]={0}; //Для вывода сообщений на экран
 //Болезнь
 bool Zaraza=false;//Гадость
-byte Poison=0, PoisonAffect=0; // Уровень яда
-float PoisonKoef=1, MinPoisonKoef=1; //Коэффициент воздействия яда на игрока
-//Радио приемник
-uint8_t buf[VW_MAX_MESSAGE_LEN];
-uint8_t buflen = VW_MAX_MESSAGE_LEN;
+int Poison=0, PoisonAffect=0; // Уровень яда
+byte PoisonKoef=100, MinPoisonKoef=100; //Коэффициент воздействия яда на игрока
 //Динамик
 int SpeakerTime=0,SpeakerWaitTime=0,SpeakerRepeat=0; //Время сигнала, между сигнлами, повторение сигналов
 bool SpeakerWait=false, SpeakerReady=true, Mute=false; //запрет одновременного использования пищалки и время между сигналами, глушилка звука
@@ -55,17 +51,21 @@ bool SpeakerWait=false, SpeakerReady=true, Mute=false; //запрет однов
 //bool Pin13=false;
 //Статистика
 unsigned int DeathCount=0;
+//WiFI
+unsigned int NewTreat=0, NewRadiation=0;
+bool WiFiRefresh=false;
+byte SignalLevel=0;
+char buf[14];
 //Счетчики
-unsigned long PrMillisRXRefresh=0, PrMillisRad=0, PrMillisBat=0, PrMillisTreat=0, MillisSpeaker=0, PrDisplayLedTime=0, PrMillisAffect=0, PrMillisChangeDisplayPg=0, 
-PrMillisDisplayRefresh=0, PrArtInfoTime=0,PrMillisAdminDevice[2]={0,0},PrMillisArtefaktDevice[2]={0,0}, PrMillisPushKey=0; //Для отсчета времени
-unsigned long RadiationMillis[3]={0,0,0}, TreatMillis[5]={0,0,0,0,0};
+unsigned long PrMillisRad=0, PrMillisBat=0, PrMillisTreat=0, MillisSpeaker=0, PrDisplayLedTime=0, PrMillisChangeDisplayPg=0,PrMillisPoison=0,
+PrMillisDisplayRefresh=0, PrArtInfoTime=0,PrMillisAdminDevice[2]={0,0},PrMillisArtefaktDevice[2]={0,0}, PrMillisPushKey=0, PrMillisWifiRefresh=0; //Для отсчета времени
 
 void setup() {
 if (EEPROM.read(82)!=58) {EEPROM_CLEAR();Signal(5);EEPROM.write(82,58);}
 EEPROM_READ();
 NoReadMessages();
-  pinMode(LedPin, OUTPUT);
-  analogWrite(LedPin, DisplayBright);
+//  pinMode(LedPin, OUTPUT);
+//  analogWrite(LedPin, DisplayBright);
   pinMode(SpeakerPin, OUTPUT);
   pinMode(13, OUTPUT);
   display.begin();
@@ -76,14 +76,11 @@ NoReadMessages();
   LCD(1);
  //   Serial.begin(9600);  // Debugging only
  //   Serial.println("setup"); 
-    vw_set_rx_pin(receive_pin);
-    vw_set_ptt_inverted(true); 
-    vw_setup(2000);
-    vw_rx_start();
+ mySerial.begin(9600);
     Volt=GetVoltage(VbatPin, 6.5, 8.0, 2.0);
     digitalWrite(SpeakerPin, LOW);
     randomSeed(analogRead(4));
-TreatMas[4]=BonusTreat;
+TreatLevel=BonusTreat;
 }
 
 void EEPROMWriteInt(int p_address, int p_value)
@@ -122,46 +119,46 @@ void EEPROM_CLEAR() {
 void EEPROM_READ() {
 DeathCount=EEPROMReadInt(84);
 DeathCause=EEPROM.read(83);
-Health=EEPROM.read(80);
-Death=EEPROM.read(81);
+//Health=EEPROM.read(80)*1000;
+//Death=EEPROM.read(81);
 PrHealthWrite=Health;
 for (byte i=0;i<10;i++) if (EEPROM.read(i+30)==1) {Zaraza=true;Affect(i);break;};
 }
-void GetMes() {
 
-    if (vw_get_message(buf, &buflen)) // Non-blocking
-    {
-float ValRad=0, ValTreat=0;
 
-  byte k=0;
-if (buf[0]=='T' && buf[1]=='r' && buf[2]=='e' && buf[3]=='a' && buf[4]=='t') {
-    k=buf[5];
-    if ((k!=3 || TreatBar) && (k!=4 || TreatBaza)) {
-    ValTreat+=10*buf[6];ValTreat+=buf[7];ValTreat+=0.1*buf[8];ValTreat+=0.01*buf[9];
-    TreatMillis[k]=millis();
-    TreatMas[k]=ValTreat;
-    if (!Treat) Treat=true;
+void GetWifi() {
+
+if (!WiFiRefresh) {mySerial.println("AT+CWLAP");PrMillisWifiRefresh=millis();WiFiRefresh=true;}
+
+if (millis()-PrMillisWifiRefresh>5000 && WiFiRefresh) {
+  NewRadiation=0;
+  NewTreat=0;
+  while (mySerial.available()) {
+    for (int i=0;i<13;i++) {buf[i]=buf[i+1];}
+    buf[13]=mySerial.read(); 
+    if (buf[0]=='T' && buf[1]=='r' && buf[2]=='e' && buf[3]=='A') {
+    NewTreat+=(buf[5]-48)*1000+(buf[6]-48)*100+(buf[7]-48)*10+buf[8]-48;
     }
-    } // Лечение
-    
-if (!Death) {
-  if (buf[0]=='R' && buf[1]=='a' && buf[2]=='d' && buf[3]=='i' && buf[4]=='a') {
-  k=buf[5];
-  ValRad+=10*buf[6];ValRad+=buf[7];ValRad+=0.1*buf[8];ValRad+=0.01*buf[9];
-  RadiationMillis[k]=millis();
-  RadiationMas[k]=ValRad;
-  if (!Radiation) Radiation=true;
-  } // Радиация
-  
-    if (buf[0]=='D' && buf[1]=='e' && buf[2]=='a' && buf[3]=='d' && buf[4]=='h') {DeathCause=3;Death_Stalker();} //Бомба
-
-    if (buf[0]=='M' && buf[1]=='e' && buf[2]=='s' && buf[3]=='s' && buf[4]=='A') {
-    NewSMS(buf[5], buf[6], buf[7], buf[8], buf[9], buf[10]);
-    }
-    
-    }}
+      if (!Death) {
+        if (buf[0]=='D' && buf[1]=='e' && buf[2]=='a' && buf[3]=='d' && buf[4]=='H') {DeathCause=3;Death_Stalker();} //Бомба
+          if (buf[0]=='M' && buf[1]=='e' && buf[2]=='s' && buf[3]=='s' && buf[4]=='A') { //Сообщение
+          NewSMS(buf[5], buf[6], buf[7], buf[8], buf[9], buf[10]);
+          }
+             if (buf[0]=='R' && buf[1]=='a' && buf[2]=='d' && buf[3]=='i' && buf[4]=='A') { //Радиация
+             SignalLevel=100-((buf[12]-48)*10+buf[13]-48);
+             NewRadiation+=((buf[5]-48)*1000+(buf[6]-48)*100+(buf[7]-48)*10+buf[8]-48) * SignalLevel / 10;
+             }
+      }
+  }
+  RadiationLevel=NewRadiation;
+  TreatLevel=NewTreat+BonusTreat+TreatArtefact;
+  WiFiRefresh=false;
 }
+}
+
+
 void ReadNewSMS(byte MesNum) {
+  /*
   if (MesNum<5) {
   if (EEPROM.read(MesNum+65)==0) {
   for (int i=0;i<5;i++) {if (i!=MesNum) {if (EEPROM.read(i+25)==1) EEPROM.write(i+25,0);if (EEPROM.read(i+65)==1) EEPROM.write(i+65,0);}
@@ -172,6 +169,7 @@ void ReadNewSMS(byte MesNum) {
   Signal(6);
   NoReadMessages();
   }}
+  */
   if (MesNum>4 && MesNum<30) {
    if (EEPROM.read(MesNum+35)==0) {
     EEPROM.write(MesNum-5,1);
@@ -200,37 +198,35 @@ if (Id_group==Group_id || Id_group==0){
   if (rnd_rate<=Rate) ReadNewSMS(MesNum);
   }
 }
-void TransmitRadiation() {
-for (byte i=0;i<3;i++) if (millis()-RadiationMillis[i] > 3000) RadiationMas[i]=0;
-for (byte i=0;i<5;i++) if (millis()-TreatMillis[i] > 5000) TreatMas[i]=0;
-}
-void Radiation_zone (int Heal, long Millis) { //Радиация
+
+
+void Radiation_zone () { //Радиация
     if (!Death)
-    if ((millis()-PrMillisRad)>=Millis) {
+    if ((millis()-PrMillisRad)>=1000) {
       PrMillisRad=millis();
-      Health=Health-Heal;
+      Health-=RadiationLevel*RadiationKoef/100;
       DeathCause=0;
     }
 }
-void Treat_zone (int Heal, long Millis) { //Лечилка
-    if ((millis()-PrMillisTreat)>=Millis) {
+void Treat_zone () { //Лечилка
+    if ((millis()-PrMillisTreat)>=1000) {
     PrMillisTreat=millis();
-    Health=Health+Heal;
+    Health+=TreatLevel*TreatKoef/100;
     }
-if (DeathSignal) {DeathSignal=false;LCD(1);}
+if (DeathSignal && TreatLevel>0) {DeathSignal=false;LCD(1);}
 }
-void Life() { // Проверка жизни сталкера
-if (Health>MaxHealth && Health <MaxHealth+10) Health=MaxHealth;
-if (Health<0 || Health >=MaxHealth+10) Death_Stalker();
-if (Health==0 && !Death) Death_Stalker();
-if (Health>=MaxHealth && Death) Restore_Stalker();
-if (Health>PrHealthWrite && Health-PrHealthWrite>=20) {EEPROM.write(80, byte(Health));PrHealthWrite=Health;}
-if (Health<PrHealthWrite && PrHealthWrite-Health>=20) {EEPROM.write(80, byte(Health));PrHealthWrite=Health;}
 
+void Life() { // Проверка жизни сталкера
+if (Health>MaxHealth) Health=MaxHealth;
+if (Health<=0 && !Death) Death_Stalker();
+if (Health>=MaxHealth && Death) Restore_Stalker();
+if (Health>PrHealthWrite && Health-PrHealthWrite>=20000) {EEPROM.write(80, byte(Health/1000));PrHealthWrite=Health;}
+if (Health<PrHealthWrite && PrHealthWrite-Health>=20000) {EEPROM.write(80, byte(Health/1000));PrHealthWrite=Health;}
 }
+
 void Death_Stalker() { // Сталкер умер
-  TreatMas[5]=0;
-  TreatMas[6]=0;
+  DeathCount++;
+  TreatArtefact=0;
   Artefakt[0]=false;Artefakt[1]=false;
   ArtefaktID[0]=0;ArtefaktID[1]=0;
   RadiationKoef=MinRadiationKoef;
@@ -240,9 +236,8 @@ void Death_Stalker() { // Сталкер умер
   DeathSignal=true;
   Messages=0;
   Zaraza=false;
-  for (byte k=0;k<3;k++) {RadiationMas[k]=0;TreatMas[k]=0;}
   for (byte k=0;k<10;k++) if (EEPROM.read(k+30)==1) EEPROM.write(k+30,0);
-  Health=0.0;
+  Health=0;
   EEPROM.write(80, 0);
   EEPROM.write(81,1);
   EEPROMWriteInt(84, DeathCount);
@@ -251,9 +246,8 @@ void Death_Stalker() { // Сталкер умер
   LCD(1);
   Signal(1);
 }
+
 void Restore_Stalker() { //Сталкер ожил
-  TreatMas[6]=BonusTreat;
-  Treat=true;
   Death=false;
   DeathSignal=false;
   LCD(1);
@@ -263,12 +257,13 @@ void Restore_Stalker() { //Сталкер ожил
   EEPROM.write(81,0);
   NoReadMessages();
 }
+
 void SignalRadiation() { //Подача сигнала радиации (счетчик гейгера)
   if (SpeakerReady && !Mute) {
   int SignMn=0;
-  if (RadiationLevel<1) SignMn=RadiationLevel*2000 + random(250);
-  if (RadiationLevel>=1 && RadiationLevel<=3) SignMn=2000 + RadiationLevel*65 + random(100);
-  if (RadiationLevel>3) SignMn=2200+random(100);
+  if (RadiationLevel<1000) SignMn=RadiationLevel*2 + random(250);
+  if (RadiationLevel>=1000 && RadiationLevel<=3) SignMn=2000 + RadiationLevel*65/1000 + random(100);
+  if (RadiationLevel>3000) SignMn=2200+random(100);
   if (millis()-MillisSpeaker > (2300 - SignMn)) {
     MillisSpeaker=millis();
     digitalWrite(SpeakerPin, HIGH);                         
@@ -277,6 +272,7 @@ void SignalRadiation() { //Подача сигнала радиации (сче�
   }
   }
 }
+
 void Signal(byte Val) { //Подача сигналов пищалкой
 switch (Val) {
   case 0:
@@ -361,15 +357,14 @@ switch (Val) {
   SpeakerRepeat=1;
   SpeakerTime=300; 
   SpeakerReady=false;MillisSpeaker=millis();
-  break;
-  
-  
+  break; 
   }
-
 }
+
 void LCD_Refresh(){
   if (!LCD_Sleep) LCD(2);
 }
+
 int GetVoltage(int PinBat, float MinVolt, float MaxVolt, float KF) { //Проверка заряда батареи
   float Min=(MinVolt*204.8)/KF;
   float Max=(MaxVolt*204.8)/KF;
@@ -387,6 +382,7 @@ int GetVoltage(int PinBat, float MinVolt, float MaxVolt, float KF) { //Пров�
   if (LowVolt) Signal(5);
   return VoltPerc;
 }
+
 void PrintSMS() {
 display.setCursor(0,8);
 switch(DisplayPage) {
@@ -474,9 +470,9 @@ M[53]='а';M[54]='к';M[55]='т';M[56]='ы';M[57]='!';M[58]=0;
   break;
 }
 if (DisplayPage<25)  for (int i=0;M[i]!=0;i++) display.write(M[i]);
-else for (int i=0;MA[i]!=0;i++) display.write(MA[i]);
-
+//else for (int i=0;MA[i]!=0;i++) display.write(MA[i]);
 }
+
 void PrintArtefaktInfo(byte Num) {
 M[0]='А';M[1]='р';M[2]='т';M[3]='е';M[4]='ф';M[5]='а';M[6]='к';M[7]='т';M[8]=' ';M[10]=':';M[11]=0;
 if (Num==0) M[9]='1'; else M[9]='2';
@@ -567,21 +563,14 @@ for (int i=0;M[i]!=0;i++) display.write(M[i]);
 }
 void PrintMessage() {
 int k=0;
-int Tmp2=RadiationLevel*100+1;
-int Tmp3=TreatLevel*1000;
-int Tmp4=Poison;
-int Tmp5;
-if (RadiationKoef>0) Tmp5=(1-RadiationKoef)*100; else Tmp5=100;
-int Tmp6;
-if (PoisonKoef>0) Tmp6=(1-PoisonKoef)*100; else Tmp6=100;
 char KoefRad[3]={0,0,0};
-sprintf(KoefRad, "%d", Tmp5);
+sprintf(KoefRad, "%d", RadiationKoef);
 char KoefPois[3]={0,0,0};
-sprintf(KoefPois, "%d", Tmp6);
+sprintf(KoefPois, "%d", PoisonKoef);
 char PoisonLev[3]={0,0,0};
-sprintf(PoisonLev, "%d", Tmp4);
+sprintf(PoisonLev, "%d", Poison/1000);
 char Fon[4]={0,0,0,0};
-sprintf(Fon, "%d", Tmp2);
+sprintf(Fon, "%d", RadiationLevel);
 for (k=0;Fon[3] == 0;k++) {
  Fon[3]=Fon[2];
  Fon[2]=Fon[1];
@@ -589,7 +578,7 @@ for (k=0;Fon[3] == 0;k++) {
  Fon[k]='0';
 }
 char TreatLev[4]={0,0,0,0};
-sprintf(TreatLev, "%d", Tmp3);
+sprintf(TreatLev, "%d", TreatLevel);
 for (k=0;TreatLev[3] == 0;k++) {
  TreatLev[3]=TreatLev[2];
  TreatLev[2]=TreatLev[1];
@@ -623,7 +612,7 @@ if (!Death)
             PrintSMS();
             }
 if (Death) {
-  if (Treat) {
+  if (TreatLevel>0) {
   display.setCursor(22,20);
   M[0]='Л';M[1]='е';M[2]='ч';M[3]='е';M[4]='н';M[5]='и';M[6]='е';M[7]=0;
  }
@@ -660,8 +649,8 @@ void LCD(byte Val) { //Вывод инфы на дисплей
   if (Val==1) PrDisplayLedTime=millis();
   if (Val!=0) {
   char Heal[3]={0,0,0}, Mes[2]={0,0};
-  analogWrite(LedPin, DisplayBright);
-  sprintf(Heal, "%d", byte(Health));
+  //analogWrite(LedPin, DisplayBright);
+  sprintf(Heal, "%d", byte(Health/1000));
   sprintf(Mes, "%d", Messages);
   LCD_Sleep=false;
   display.clearDisplay();
@@ -684,7 +673,7 @@ PrintMessage();
   display.display(); 
   }   
   if (Val==0) {
-    analogWrite(LedPin, 0);
+//    analogWrite(LedPin, 0);
     display.clearDisplay();
     display.display();
     LCD_Sleep=true;
@@ -693,44 +682,44 @@ PrintMessage();
 void Affect (int Ind) { 
   switch (Ind) {
     case 0:
-    Poison+=6;
-    PoisonAffect=6;
+    Poison+=6000;
+    PoisonAffect=6000;
     break;
     case 1:
-    Poison+=6;
-    PoisonAffect=6;
+    Poison+=6000;
+    PoisonAffect=6000;
     break;
     case 2:
-    Poison+=10;
-    PoisonAffect=10;
+    Poison+=10000;
+    PoisonAffect=10000;
     break;
     case 3:
-    Poison+=10;
-    PoisonAffect=10;
+    Poison+=10000;
+    PoisonAffect=10000;
     break;
     case 4:
-    Poison+=5;
-    PoisonAffect=5;
+    Poison+=5000;
+    PoisonAffect=5000;
     break;
     case 5:
-    Poison+=5;
-    PoisonAffect=5;
+    Poison+=5000;
+    PoisonAffect=5000;
     break;
     case 6:
     Poison+=5;
     PoisonAffect=5;
     break;
     case 7:
-    Poison+=5;
-    PoisonAffect=5;
+    Poison+=5000;
+    PoisonAffect=5000;
     break;
     case 8:
-    Poison+=5;
-    PoisonAffect=5;
+    Poison+=5000;
+    PoisonAffect=5000;
     break;
     case 9:
-    Poison+=5;
-    PoisonAffect=5;
+    Poison+=5000;
+    PoisonAffect=5000;
     break;
   }
 }
@@ -804,10 +793,9 @@ for (ArtefaktID[PortNum]; ArtefaktID[PortNum]<13; ArtefaktID[PortNum]++) if (Out
     break;
     case 6:
     //6 артефакт
-    TreatMas[5]+=0.017;
-    Treat=true;
-    RadiationKoef-=0.15;
-    PoisonKoef-=0.2;
+    TreatArtefact+=17;
+    RadiationKoef-=15;
+    PoisonKoef-=20;
     break;
     case 7:
     //7 артефакт
@@ -853,9 +841,9 @@ void ArtefaktEject(byte PortNum) { //Убираем воздействие ар�
     break;
     case 6:
     //6 артефакт
-    TreatMas[5]-=0.017;
-    RadiationKoef+=0.15;
-    PoisonKoef+=0.2;
+    TreatArtefact-=17;
+    RadiationKoef+=15;
+    PoisonKoef+=20;
     break;
     case 7:
     //7 артефакт
@@ -934,17 +922,11 @@ if (millis() - PrMillisDisplayRefresh > 1000) {
   PrMillisChangeDisplayPg=millis(); 
   if (DisplayChange) DisplayChange=false; else DisplayChange=true;
  }
-  GetMes();TransmitRadiation();
+ 
   // Проверка батарейки
   if (millis()-PrMillisBat > 30000) {
     PrMillisBat=millis();
     Volt=GetVoltage(VbatPin, 6.5, 8.0, 2.0);
-  }
-
-  //Обновление сканирования радио
-  if (millis()-PrMillisRXRefresh > 600000) {
-    PrMillisRXRefresh=millis();
-    vw_rx_start();
   }
   
   if (millis() - PrDisplayLedTime > DisplayLedTime && !LCD_Sleep) {
@@ -952,51 +934,24 @@ if (millis() - PrMillisDisplayRefresh > 1000) {
   }
 
 if (!Death) {  
-// Проверка радиации, если есть - сложение всех радиаций в одно значение
-    if (Radiation) {
-      RadiationLevel=0;
-      for (byte i=0; i<3; i++) {
-        RadiationLevel=RadiationLevel+RadiationMas[i];
-      }
-      if (RadiationLevel==0) {Radiation=false;LCD_Refresh();};
-    }
-
 // Если есть радиация - воздействовать на игрока 
-    if (RadiationLevel > 0) {
-      if (!Radiation_res) {Radiation_res=true;PrMillisRad=millis();}      
-      if (RadiationKoef>0) Radiation_zone(1, long(1/RadiationLevel*1000)/RadiationKoef);   
-      SignalRadiation();
-    }
-      else {Radiation_res=false;LCD_Refresh();};
+    if (RadiationLevel > 0) {Radiation_zone();SignalRadiation();}
 }
 
-
-// Если есть лечилка - сложение значений всех лечилок
-    if (Treat) {
-      TreatLevel=0;
-      for (byte i=0; i<7; i++) {
-        TreatLevel=TreatLevel+TreatMas[i];}
-      if (TreatLevel==0) {Treat=false;LCD(1);};
-    }
-if (Health<MaxHealth) {
+    if (TreatLevel>0 && Health<MaxHealth) Treat_zone(); 
 // Если есть лечилка - воздействовать на игрока 
-    if (TreatLevel > 0) {
-      if (!Treat_res) {Treat_res=true;PrMillisTreat=millis();}
-      Treat_zone(1, long((1/TreatLevel*1000)/TreatKoef));
-    }
-      else {Treat_res=false;};
-}
+      
+
 // Отслеживание вредных воздействий
-    if (millis()-PrMillisAffect>60000) {
-      PrMillisAffect=millis();
-      if (Poison>0) {Health-=Poison*PoisonKoef;Signal(7);DeathCause=1;EEPROM.write(80, byte(Health));PrHealthWrite=Health;}
-    if (DeathSignal && Death) Signal(1);
-    LCD_Refresh();
+    if (Poison>0 && millis()-PrMillisPoison>=1000) {
+      Health-=Poison/60;
+      PrMillisPoison=millis();
+      DeathCause=1;
     }
 
 // Если изменилось значение жизни - отобразить на дисплее и проверить не умер ли или воскрес  
-  if (PrHealth > byte(Health)) {Life();LCD_Refresh();PrHealth=Health;}
-  if (PrHealth < byte(Health)) {Life();PrHealth=Health;LCD_Refresh();}
+  if (byte(PrHealth/1000) > byte(Health/1000)) {Life();LCD_Refresh();PrHealth=Health;}
+  if (byte(PrHealth/1000) < byte(Health/1000)) {Life();PrHealth=Health;LCD_Refresh();}
   
 // Отслеживание кнопок
  if (analogRead(KeysPin) > 100) {
@@ -1033,7 +988,7 @@ if (Health<MaxHealth) {
   Artefakt[1]=false;
   if (ArtefaktID[1]!=0) ArtefaktEject(1);
   }
-
+GetWifi();
 //Pin13=!Pin13;
 //digitalWrite(13, Pin13);
 }
