@@ -30,6 +30,11 @@ byte DeviceID=0, ArtefaktID[2]={0,0}; //Номер подключенного у
 bool Device[2]={false,false}, Artefakt[2]={false, false}, Key=false; //Логика устройств внешних и нажатия кнопок меню
 byte VbatPin=0, AdminDevPin[2]={6,3},ArtefaktPin[2]={7,2}, KeysPin=1, SpeakerPin=10, LedPin=9; //Пины контроллера
 //Дисплей
+byte KoefPois[3]={0,0,0};
+byte KoefRad[3]={0,0,0};
+byte PoisonLev[3]={0,0,0};
+byte Fon[4]={0,0,0,0};
+byte TreatLev[4]={0,0,0,0};
 int DisplayLedTime=30000; // Время подсветки дисплея
 byte DisplayBright=200, DisplayPage=31; // Якрость подсветки дисплея и номер отображаемой страницы дисплея
 bool DisplayChange=false; // Переключение дисплея при воздействии заразы
@@ -140,13 +145,13 @@ if (millis()-PrMillisWifiRefresh>5000 && WiFiRefresh) {
     NewTreat+=(buf[5]-48)*1000+(buf[6]-48)*100+(buf[7]-48)*10+buf[8]-48;
     }
       if (!Death) {
-        if (buf[0]=='D' && buf[1]=='e' && buf[2]=='a' && buf[3]=='d' && buf[4]=='H') {DeathCause=3;Death_Stalker();} //Бомба
+        if (buf[0]=='D' && buf[1]=='e' && buf[2]=='a' && buf[3]=='t' && buf[4]=='H') {DeathCause=3;Death_Stalker();} //Бомба
           if (buf[0]=='M' && buf[1]=='e' && buf[2]=='s' && buf[3]=='s' && buf[4]=='A') { //Сообщение
           NewSMS(buf[5], buf[6], buf[7], buf[8], buf[9], buf[10]);
           }
              if (buf[0]=='R' && buf[1]=='a' && buf[2]=='d' && buf[3]=='i' && buf[4]=='A') { //Радиация
              SignalLevel=100-((buf[12]-48)*10+buf[13]-48);
-             NewRadiation+=((buf[5]-48)*1000+(buf[6]-48)*100+(buf[7]-48)*10+buf[8]-48) * SignalLevel / 10;
+             NewRadiation+=((buf[5]-48)*1000+(buf[6]-48)*100+(buf[7]-48)*10+buf[8]-48) * SignalLevel / 100;
              }
       }
   }
@@ -563,28 +568,11 @@ for (int i=0;M[i]!=0;i++) display.write(M[i]);
 }
 void PrintMessage() {
 int k=0;
-char KoefRad[3]={0,0,0};
-sprintf(KoefRad, "%d", RadiationKoef);
-char KoefPois[3]={0,0,0};
-sprintf(KoefPois, "%d", PoisonKoef);
-char PoisonLev[3]={0,0,0};
-sprintf(PoisonLev, "%d", Poison/1000);
-char Fon[4]={0,0,0,0};
-sprintf(Fon, "%d", RadiationLevel);
-for (k=0;Fon[3] == 0;k++) {
- Fon[3]=Fon[2];
- Fon[2]=Fon[1];
- Fon[1]=Fon[0];
- Fon[k]='0';
-}
-char TreatLev[4]={0,0,0,0};
-sprintf(TreatLev, "%d", TreatLevel);
-for (k=0;TreatLev[3] == 0;k++) {
- TreatLev[3]=TreatLev[2];
- TreatLev[2]=TreatLev[1];
- TreatLev[1]=TreatLev[0];
- TreatLev[k]='0';
-}
+KoefPois[0]=PoisonKoef/100+48;KoefPois[1]=(PoisonKoef%100)/10+48;KoefPois[2]=PoisonKoef%10+48;
+KoefRad[0]=RadiationKoef/100+48;KoefRad[1]=(RadiationKoef%100)/10+48;KoefRad[2]=RadiationKoef%10+48;
+PoisonLev[0]=Poison/100+48;PoisonLev[1]=(Poison%100)/10+48;PoisonLev[2]=Poison%10+48;
+Fon[0]=RadiationLevel/1000+48;Fon[1]=(RadiationLevel%1000)/100+48;Fon[2]=(RadiationLevel%100)/10+48;Fon[3]=RadiationLevel%10+48;
+TreatLev[0]=TreatLevel/1000+48;TreatLev[1]=(TreatLevel%1000)/100+48;TreatLev[2]=(TreatLevel%100)/10+48;TreatLev[3]=TreatLevel%10+48;
 
 if (!Death)
         if (DisplayPage==31) {
