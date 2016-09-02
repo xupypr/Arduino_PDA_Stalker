@@ -12,15 +12,15 @@ bool Death=false, DeathSignal=false; //Мертв ли сталкер, Повт�
 byte DeathCause=0; //Причина смерти
 long Health=100000;
 long MaxHealth=100000,PrHealth=101000, PrHealthWrite=100000;; //Максимальное значение жизни
-byte TreatKoef=100; //Коэффициент лечения в процентах
+long TreatKoef=100; //Коэффициент лечения в процентах
 //Батарея
 bool LowVolt=false; //низкий заряд батареи
 byte Volt, BatICO=123; //Заряд батареи в процентах и адрес иконки батареи в зависимости от заряда
 //Радиация и лечение
 byte RadiationKoef=100, MinRadiationKoef=100; //Коэффициент воздействия радиации на игрока
-unsigned int RadiationLevel=0, TreatLevel=0; //общий уровень радиации и лечилки
-unsigned int BonusTreat=0; //Для реализации бонуса "Зализывая раны"
-unsigned int TreatArtefact=0;
+long RadiationLevel=0, TreatLevel=0; //общий уровень радиации и лечилки
+long BonusTreat=0; //Для реализации бонуса "Зализывая раны"
+long TreatArtefact=0;
 bool TreatBar=false; // бонус "Завсегдатай"
 bool TreatBaza=false; //бонус "Член банды"
 //Устройства, кнопки, пины
@@ -66,7 +66,7 @@ unsigned long PrMillisRad=0, PrMillisBat=0, PrMillisTreat=0, MillisSpeaker=0, Pr
 PrMillisDisplayRefresh=0, PrArtInfoTime=0,PrMillisAdminDevice[2]={0,0},PrMillisArtefaktDevice[2]={0,0}, PrMillisPushKey=0, PrMillisWifiRefresh=0; //Для отсчета времени
 
 void setup() {
-if (EEPROM.read(82)!=58) {EEPROM_CLEAR();Signal(5);EEPROM.write(82,58);}
+if (EEPROM.read(82)!=23) {EEPROM_CLEAR();Signal(5);EEPROM.write(82,23);}
 EEPROM_READ();
 NoReadMessages();
 //  pinMode(LedPin, OUTPUT);
@@ -79,13 +79,15 @@ NoReadMessages();
   PrintUserInfo();
   delay(5000);
   LCD(1);
- //   Serial.begin(9600);  // Debugging only
+//    Serial.begin(9600);  // Debugging only
  //   Serial.println("setup"); 
- mySerial.begin(9600);
+    mySerial.begin(9600);
     Volt=GetVoltage(VbatPin, 6.5, 8.0, 2.0);
     digitalWrite(SpeakerPin, LOW);
     randomSeed(analogRead(4));
 TreatLevel=BonusTreat;
+mySerial.println("AT+CWMODE=1");
+delay(250);
 }
 
 void EEPROMWriteInt(int p_address, int p_value)
@@ -106,6 +108,26 @@ unsigned int EEPROMReadInt(int p_address)
         return ((lowByte << 0) & 0xFF) + ((highByte << 8) & 0xFF00);
         }
 
+void EEPROMWritelong(int address,unsigned long value) {
+      byte four = (value & 0xFF);
+      byte three = ((value >> 8) & 0xFF);
+      byte two = ((value >> 16) & 0xFF);
+      byte one = ((value >> 24) & 0xFF);
+      EEPROM.write(address, four);
+      EEPROM.write(address + 1, three);
+      EEPROM.write(address + 2, two);
+      EEPROM.write(address + 3, one);
+      }
+long EEPROMReadlong(unsigned long address) {
+      unsigned long four = EEPROM.read(address);
+      unsigned long three = EEPROM.read(address + 1);
+      unsigned long two = EEPROM.read(address + 2);
+      unsigned long one = EEPROM.read(address + 3);
+      return ((four << 0) & 0xFF) + ((three << 8) & 0xFFFF) + ((two << 16) & 0xFFFFFF) + ((one << 24) & 0xFFFFFFFF);
+      }
+
+
+
 void PrintUserInfo() {
 display.clearDisplay();
 display.setCursor(0, 0);
@@ -118,14 +140,14 @@ display.display();
 void EEPROM_CLEAR() {
   for (byte i=0;i<80;i++) EEPROM.write(i,0);
   for (byte i=83;i<101;i++) EEPROM.write(i,0);
-  EEPROM.write(80,100);
+  EEPROMWritelong(101,MaxHealth);
   EEPROM.write(81,0);
 }
 void EEPROM_READ() {
 DeathCount=EEPROMReadInt(84);
 DeathCause=EEPROM.read(83);
-//Health=EEPROM.read(80)*1000;
-//Death=EEPROM.read(81);
+Health=EEPROMReadlong(101);
+Death=EEPROM.read(81);
 PrHealthWrite=Health;
 for (byte i=0;i<10;i++) if (EEPROM.read(i+30)==1) {Zaraza=true;Affect(i);break;};
 }
@@ -140,7 +162,8 @@ if (millis()-PrMillisWifiRefresh>5000 && WiFiRefresh) {
   NewTreat=0;
   while (mySerial.available()) {
     for (int i=0;i<13;i++) {buf[i]=buf[i+1];}
-    buf[13]=mySerial.read(); 
+    buf[13]=mySerial.read();
+    //Serial.write(buf[13]);
     if (buf[0]=='T' && buf[1]=='r' && buf[2]=='e' && buf[3]=='A') {
     NewTreat+=(buf[5]-48)*1000+(buf[6]-48)*100+(buf[7]-48)*10+buf[8]-48;
     }
@@ -151,7 +174,9 @@ if (millis()-PrMillisWifiRefresh>5000 && WiFiRefresh) {
           }
              if (buf[0]=='R' && buf[1]=='a' && buf[2]=='d' && buf[3]=='i' && buf[4]=='A') { //Радиация
              SignalLevel=100-((buf[12]-48)*10+buf[13]-48);
-             NewRadiation+=((buf[5]-48)*1000+(buf[6]-48)*100+(buf[7]-48)*10+buf[8]-48) * SignalLevel / 100;
+             SignalLevel/=10;SignalLevel++;
+             if (SignalLevel>5) SignalLevel=5;
+             NewRadiation+=((buf[5]-48)*1000+(buf[6]-48)*100+(buf[7]-48)*10+buf[8]-48)* SignalLevel / 5;
              }
       }
   }
@@ -207,16 +232,16 @@ if (Id_group==Group_id || Id_group==0){
 
 void Radiation_zone () { //Радиация
     if (!Death)
-    if ((millis()-PrMillisRad)>=1000) {
+    if ((millis()-PrMillisRad)>=100) {
       PrMillisRad=millis();
-      Health-=RadiationLevel*RadiationKoef/100;
+      Health-=RadiationLevel*RadiationKoef/1000;
       DeathCause=0;
     }
 }
 void Treat_zone () { //Лечилка
-    if ((millis()-PrMillisTreat)>=1000) {
+    if ((millis()-PrMillisTreat)>=100) {
     PrMillisTreat=millis();
-    Health+=TreatLevel*TreatKoef/100;
+    Health+=TreatLevel*TreatKoef/1000;
     }
 if (DeathSignal && TreatLevel>0) {DeathSignal=false;LCD(1);}
 }
@@ -225,8 +250,7 @@ void Life() { // Проверка жизни сталкера
 if (Health>MaxHealth) Health=MaxHealth;
 if (Health<=0 && !Death) Death_Stalker();
 if (Health>=MaxHealth && Death) Restore_Stalker();
-if (Health>PrHealthWrite && Health-PrHealthWrite>=20000) {EEPROM.write(80, byte(Health/1000));PrHealthWrite=Health;}
-if (Health<PrHealthWrite && PrHealthWrite-Health>=20000) {EEPROM.write(80, byte(Health/1000));PrHealthWrite=Health;}
+if (abs(Health-PrHealthWrite)>=20000) {EEPROMWritelong(101, Health);PrHealthWrite=Health;}
 }
 
 void Death_Stalker() { // Сталкер умер
@@ -243,7 +267,7 @@ void Death_Stalker() { // Сталкер умер
   Zaraza=false;
   for (byte k=0;k<10;k++) if (EEPROM.read(k+30)==1) EEPROM.write(k+30,0);
   Health=0;
-  EEPROM.write(80, 0);
+  EEPROMWritelong(101, 0);
   EEPROM.write(81,1);
   EEPROMWriteInt(84, DeathCount);
   EEPROM.write(83, DeathCause);
@@ -257,7 +281,7 @@ void Restore_Stalker() { //Сталкер ожил
   DeathSignal=false;
   LCD(1);
   Signal(2);
-  EEPROM.write(80, MaxHealth);
+  EEPROMWritelong(101, MaxHealth);
   PrHealthWrite=MaxHealth;
   EEPROM.write(81,0);
   NoReadMessages();
@@ -267,7 +291,7 @@ void SignalRadiation() { //Подача сигнала радиации (сче�
   if (SpeakerReady && !Mute) {
   int SignMn=0;
   if (RadiationLevel<1000) SignMn=RadiationLevel*2 + random(250);
-  if (RadiationLevel>=1000 && RadiationLevel<=3) SignMn=2000 + RadiationLevel*65/1000 + random(100);
+  if (RadiationLevel>=1000 && RadiationLevel<=3000) SignMn=2000 + RadiationLevel*65/1000 + random(100);
   if (RadiationLevel>3000) SignMn=2200+random(100);
   if (millis()-MillisSpeaker > (2300 - SignMn)) {
     MillisSpeaker=millis();
@@ -568,8 +592,9 @@ for (int i=0;M[i]!=0;i++) display.write(M[i]);
 }
 void PrintMessage() {
 int k=0;
-KoefPois[0]=PoisonKoef/100+48;KoefPois[1]=(PoisonKoef%100)/10+48;KoefPois[2]=PoisonKoef%10+48;
-KoefRad[0]=RadiationKoef/100+48;KoefRad[1]=(RadiationKoef%100)/10+48;KoefRad[2]=RadiationKoef%10+48;
+
+KoefPois[0]=(100-PoisonKoef)/100+48;KoefPois[1]=((100-PoisonKoef)%100)/10+48;KoefPois[2]=(100-PoisonKoef)%10+48;
+KoefRad[0]=(100-RadiationKoef)/100+48;KoefRad[1]=((100-RadiationKoef)%100)/10+48;KoefRad[2]=(100-RadiationKoef)%10+48;
 PoisonLev[0]=Poison/100+48;PoisonLev[1]=(Poison%100)/10+48;PoisonLev[2]=Poison%10+48;
 Fon[0]=RadiationLevel/1000+48;Fon[1]=(RadiationLevel%1000)/100+48;Fon[2]=(RadiationLevel%100)/10+48;Fon[3]=RadiationLevel%10+48;
 TreatLev[0]=TreatLevel/1000+48;TreatLev[1]=(TreatLevel%1000)/100+48;TreatLev[2]=(TreatLevel%100)/10+48;TreatLev[3]=TreatLevel%10+48;
@@ -581,8 +606,8 @@ if (!Death)
             PrintZarazaMessage();
             } else {
             display.setCursor(0, 8);
-            display.write('Ф');display.write('о');display.write('н');display.write(':');display.write(Fon[0]);display.write(Fon[1]);display.write(',');display.write(Fon[2]);display.write(Fon[3]);
-            display.write('м');display.write('к');display.write('З');display.write(47);display.write('м');
+            display.write('Ф');display.write('о');display.write('н');display.write(':');display.write(Fon[0]);display.write(',');display.write(Fon[1]);display.write(Fon[2]);display.write(Fon[3]);
+            display.write('м');display.write('к');display.write('З');display.write(47);display.write('ч');
             display.setCursor(0, 16);
             display.write('Я');display.write('д');display.write(':');display.write('-');display.write(PoisonLev[0]);display.write(PoisonLev[1]);display.write(PoisonLev[2]);display.write('ж');display.write('/');display.write('м');
             display.setCursor(0, 24);
@@ -868,7 +893,7 @@ if (millis()-PrMillisPushKey>100) {
 int tmp4=analogRead(KeysPin);
 if (tmp4>100) {
 DeathSignal=false;
-  if (tmp4 < KeysACP[0]+15 && tmp4 > KeysACP[0]-15) {
+  if (abs(KeysACP[0]-tmp4)<15) {
     if (!LCD_Sleep && DisplayPage!=31 && ArtPgNum==1) {DisplayPage=31;ArtPgNum=2;}
     else if (ArtInfo && ArtPgNum==1) {ArtInfo=false;ArtPgNum=2;}
     else if (ArtInfo && ArtPgNum==0) {PrArtInfoTime=millis();ArtPgNum=1;}
@@ -876,7 +901,7 @@ DeathSignal=false;
     LCD(1);
     Key=true;
   } 
-  if (tmp4 < KeysACP[1]+15 && tmp4 > KeysACP[1]-15) {
+  if (abs(KeysACP[1]-tmp4)<15) {
     if (!LCD_Sleep) { 
       if (DisplayPage==31) LCD(0);
       if (Messages>0) {
@@ -891,9 +916,9 @@ DeathSignal=false;
     }
     else LCD(1);
     Key=true;} 
-  if (tmp4 < KeysACP[2]+15 && tmp4 > KeysACP[2]-15) {if (Mute) {Mute=false;Signal(8);} else Mute=true;LCD(1);Key=true;} 
-  if (tmp4 < KeysACP[3]+15 && tmp4 > KeysACP[3]-15) {if (DisplayBright>=230) DisplayBright=0; else DisplayBright+=50;LCD(1);Key=true;} 
-  if (tmp4 < KeysACP[4]+15 && tmp4 > KeysACP[4]-15 && millis()-PrMillisPushKey>2000) {if (!Death) {DeathCause=2;Death_Stalker();};Key=true;} 
+  if (abs(KeysACP[2]-tmp4)<15) {if (Mute) {Mute=false;Signal(8);} else Mute=true;LCD(1);Key=true;} 
+  if (abs(KeysACP[3]-tmp4)<15) {if (DisplayBright>=230) DisplayBright=0; else DisplayBright+=50;LCD(1);Key=true;} 
+  if (abs(KeysACP[4]-tmp4)<15 && millis()-PrMillisPushKey>2000) {if (!Death) {DeathCause=2;Death_Stalker();};Key=true;} 
 }
 }
 }
